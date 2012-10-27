@@ -1,0 +1,104 @@
+  private static native int nativeInit(String pathToChip);
+  private static native int nativeGetInfo(String pathToChip, byte[] rawInfo);
+  private static native int nativeLoad(String paramString, byte[] paramArrayOfByte1, byte[] paramArrayOfByte2);
+  private static native int nativeCreateValue(String paramString, byte[] paramArrayOfByte1, int paramInt1, int paramInt2, int paramInt3, int paramInt4, byte[] paramArrayOfByte2);
+  private static native int nativeGetLastDebit(String paramString, byte[] paramArrayOfByte);
+  private static native int nativeReadLogEntry(String paramString, int paramInt1, int paramInt2, byte[] paramArrayOfByte);
+  private static native int nativeGetCert(String paramString, byte[] paramArrayOfByte);
+
+
+bramp@bramp-laptop:~/personal/mintchip/samples/android/setup$ objdump -T libs/armeabi/libMintChip.so  | grep Java
+00002398 g    DF .text	00000050 Java_ca_mint_mintchip_android_api_MintChip_nativeInit
+00001808 g    DF .text	00000224 Java_ca_mint_mintchip_android_api_MintChip_nativeGetLastDebit
+000012b8 g    DF .text	000002cc Java_ca_mint_mintchip_android_api_MintChip_nativeCreateValue
+00001c6c g    DF .text	00000370 Java_ca_mint_mintchip_android_api_MintChip_nativeLoad
+00001a2c g    DF .text	00000240 Java_ca_mint_mintchip_android_api_MintChip_nativeReadLogEntry
+00001588 g    DF .text	00000244 Java_ca_mint_mintchip_android_api_MintChip_nativeGetCert
+00001fdc g    DF .text	00000180 Java_ca_mint_mintchip_android_api_MintChip_nativeGetInfo
+
+(0x00001DF0 + 4) & 0xFFFFFFFC + 0x1AFC
+
+JNIEnv
+
+libMintChip.so
+
+Java_ca_mint_mintchip_android_api_MintChip_nativeInit
+	loads libSDSCi.so
+		"SDSCInitParams"
+		"SDSCDestroyParams"
+		"SDSCListDevs"
+		"SDSCConnectDev"
+		"SDSCDisconnectDev"
+		"SDSCBeginTransaction"
+		"SDSCEndTransaction"
+		"SDSCTransmit"
+
+
+SDSCConnectDev, SDSCBeginTransaction return zero on ok
+
+Java_ca_mint_mintchip_android_api_MintChip_nativeLoad
+	setDrive
+	Check jCertBytes is > 684
+	Check jValueMsgBytes is > 736
+	SDSCConnectDev
+	SDSCBeginTransaction
+			
+
+
+Java_ca_mint_mintchip_android_api_MintChip_nativeGetInfo
+	SDSCConnectDev	
+	SDSCBeginTransaction
+		SDSCGetBeginMutex
+		SDSCLockMutex
+		creates file /sdsctmpfile
+
+	SDSCTransmit(void *dest, int, int)
+	SDSCTransmitEx
+		SDSCGetCosMutex
+		SDSCLockMutex
+			flock()
+		SDSCGetDevInfo
+		loop {
+			IN_SDSCTransmitEx
+				SDSCGetDevSCIOType
+				SDSCWriteCommand
+					lseek(?)
+					write(fd, "IO*WRITE*HEADER*", 512)
+				SDSCPollingSCResponse
+					loop {
+						usleep(..)
+						SDSCReadCommand
+							lseek(?)
+							read(fd, 512)
+							Check it starts with "RESPONSE*FROM*IO"
+					}
+					
+			usleep ( 288 microseconds )
+		}
+		SDSCUnlockMutex
+
+	EndTransaction
+		SDSCGetBeginMutex
+		SDSCUnlockMutex
+			flock()
+			# but doesn't seem to delete /sdsctmpfile
+
+        DisconnectDev
+
+getCert     - SDSCTransmit(?, ?, 5, 0)
+getInfo     - SDSCTransmit(?, ?, 5, 0)
+getLastDebt - SDSCTransmit(?, ?, 5, 1)
+readLogEntry - SDSCTransmit(?, ?, 8, 0)
+
+mintchip_get_info
+FD, 01, 08, 08, FF
+
+mintchip_credit_transactions
+A FD, 01, 08, 08, FF  (get_info flow)
+B FD, 01, 08, 08, FF  (get_info flow)
+C FD, 01, 08, 08, *08, 08*, FF (get_info flow, with two extra two 08)
+
+mintchip_debit_transactions
+FD, 01, 08, 08, FF (get_info flow)
+
+
